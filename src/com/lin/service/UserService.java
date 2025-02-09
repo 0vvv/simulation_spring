@@ -4,13 +4,14 @@ import com.lin.spring.*;
 
 @Component
 @Scope("prototype")
-public class UserService implements BeanNameAware, InitializingBean {
+public class UserService implements BeanNameAware, InitializingBean, UserInterface {
     @Autowired
     private OrderService orderService;
     private String beanName;
 
+    @Override
     public void test() {
-        System.out.println(orderService);
+        System.out.println("userService test");
     }
 
     @Override
@@ -20,6 +21,6 @@ public class UserService implements BeanNameAware, InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
-        System.out.println("调用一下初始化方法");
+        System.out.println("初始化了");
     }
 }

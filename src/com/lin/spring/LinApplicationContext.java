@@ -5,6 +5,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class LinApplicationContext {
@@ -13,6 +14,9 @@ public class LinApplicationContext {
     private ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
     // 存储单例池
     private ConcurrentHashMap<String, Object> singletonObjects = new ConcurrentHashMap<>();
+
+    private ArrayList<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
+
 
     public LinApplicationContext(Class configClass) {
         this.configClass = configClass;
@@ -41,12 +45,19 @@ public class LinApplicationContext {
                             Class<?> clazz = classLoader.loadClass(className);
                             // 如果这个class是一个带Component注解的类，说明这里定义了一个Bean
                             if (clazz.isAnnotationPresent(Component.class)) {
+                                // 如果这个类实现了BeanPostProcessor接口，就把这个类加到beanPostProcessors里面
+                                if(BeanPostProcessor.class.isAssignableFrom(clazz)) {
+                                    BeanPostProcessor instance = (BeanPostProcessor) clazz.getConstructor().newInstance();
+                                    beanPostProcessors.add(instance);
+                                }
+
                                 // 拿到Component注解的value值，就是bean的名字
                                 String beanName = clazz.getAnnotation(Component.class).value();
                                 if (beanName.equals("")) {
                                     // 如果没有指定bean的名字，就用类名首字母小写作为bean的名字
                                     beanName = Introspector.decapitalize(clazz.getSimpleName());
                                 }
+
                                 // 生成beanDefinition
                                 BeanDefinition beanDefinition = new BeanDefinition();
                                 // 有scope注解的话就不是默认的单例
@@ -65,6 +76,14 @@ public class LinApplicationContext {
                             }
                         } catch (ClassNotFoundException e) {
                             e.printStackTrace();
+                        } catch (InvocationTargetException e) {
+                            throw new RuntimeException(e);
+                        } catch (InstantiationException e) {
+                            throw new RuntimeException(e);
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException(e);
+                        } catch (NoSuchMethodException e) {
+                            throw new RuntimeException(e);
                         }
                     }
                 }
@@ -90,7 +109,7 @@ public class LinApplicationContext {
             Object instance = clazz.getConstructor().newInstance();
             // 依赖注入，要给加了Autowired注解的字段赋值
             for (Field f : clazz.getDeclaredFields()) {
-                if(f.isAnnotationPresent(Autowired.class)) {
+                if (f.isAnnotationPresent(Autowired.class)) {
                     f.setAccessible(true);
                     // 找出名为f.getName()的bean，然后赋值给f
                     f.set(instance, getBean(f.getName()));
@@ -100,11 +119,19 @@ public class LinApplicationContext {
             if (instance instanceof BeanNameAware) {
                 ((BeanNameAware) instance).setBeanName(beanName);
             }
+            // AOP，bean初始化前的操作
+            for(BeanPostProcessor beanPostProcessor : beanPostProcessors) {
+                instance = beanPostProcessor.postProcessBeforeInitialization(beanName, instance);
+            }
             // initializingBean，调用初始化方法
             if (instance instanceof InitializingBean) {
                 ((InitializingBean) instance).afterPropertiesSet();
             }
-            // AOP
+            // AOP，bean初始化后的操作
+            for(BeanPostProcessor beanPostProcessor : beanPostProcessors) {
+                instance = beanPostProcessor.postProcessAfterInitialization(beanName, instance);
+            }
+
             return instance;
         } catch (InstantiationException e) {
             throw new RuntimeException(e);
