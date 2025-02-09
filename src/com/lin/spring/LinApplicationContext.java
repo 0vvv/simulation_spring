@@ -1,6 +1,8 @@
 package com.lin.spring;
 
+import java.beans.Introspector;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +43,10 @@ public class LinApplicationContext {
                             if (clazz.isAnnotationPresent(Component.class)) {
                                 // 拿到Component注解的value值，就是bean的名字
                                 String beanName = clazz.getAnnotation(Component.class).value();
+                                if (beanName.equals("")) {
+                                    // 如果没有指定bean的名字，就用类名首字母小写作为bean的名字
+                                    beanName = Introspector.decapitalize(clazz.getSimpleName());
+                                }
                                 // 生成beanDefinition
                                 BeanDefinition beanDefinition = new BeanDefinition();
                                 // 有scope注解的话就不是默认的单例
@@ -80,7 +86,16 @@ public class LinApplicationContext {
     private Object createBean(String beanName, BeanDefinition beanDefinition) {
         Class clazz = beanDefinition.getType();
         try {
+            // bean的实例化
             Object instance = clazz.getConstructor().newInstance();
+            // 依赖注入，要给加了Autowired注解的字段赋值
+            for (Field f : clazz.getDeclaredFields()) {
+                if(f.isAnnotationPresent(Autowired.class)) {
+                    f.setAccessible(true);
+                    // 找出名为f.getName()的bean，然后赋值给f
+                    f.set(instance, getBean(f.getName()));
+                }
+            }
             return instance;
         } catch (InstantiationException e) {
             throw new RuntimeException(e);
