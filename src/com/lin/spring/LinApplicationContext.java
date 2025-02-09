@@ -1,0 +1,119 @@
+package com.lin.spring;
+
+import java.io.File;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URL;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class LinApplicationContext {
+    private Class configClass;
+    // 存储bean的定义
+    private ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
+    // 存储单例池
+    private ConcurrentHashMap<String, Object> singletonObjects = new ConcurrentHashMap<>();
+
+    public LinApplicationContext(Class configClass) {
+        this.configClass = configClass;
+        // 扫描，有ComponentScan注解的类的话就要扫描
+        if (configClass.isAnnotationPresent(ComponentScan.class)) {
+            ComponentScan componentScan = (ComponentScan) configClass.getAnnotation(ComponentScan.class);
+            String path = componentScan.value(); // 扫描路径com.lin.service，真正要扫描的是里面的.class文件
+            path = path.replace(".", "/"); // 替换成com/lin/service
+//            System.out.println(path);
+
+            ClassLoader classLoader = LinApplicationContext.class.getClassLoader();
+            URL resource = classLoader.getResource(path); // 获取相对路径path的绝对路径
+            File file = new File(resource.getFile()); // 获取文件
+//            System.out.println(file);
+            if (file.isDirectory()) {
+                File[] files = file.listFiles();
+                for (File f : files) {
+                    String fileName = f.getAbsolutePath();
+//                    System.out.println(fileName);
+                    if (fileName.endsWith(".class")) {
+                        // 获取扫描路径下的类名
+                        String className = fileName.substring(fileName.indexOf("com"), fileName.indexOf(".class"));
+                        className = className.replace("\\", ".");
+//                        System.out.println(className);
+                        try {
+                            Class<?> clazz = classLoader.loadClass(className);
+                            // 如果这个class是一个带Component注解的类，说明这里定义了一个Bean
+                            if (clazz.isAnnotationPresent(Component.class)) {
+                                // 拿到Component注解的value值，就是bean的名字
+                                String beanName = clazz.getAnnotation(Component.class).value();
+                                // 生成beanDefinition
+                                BeanDefinition beanDefinition = new BeanDefinition();
+                                // 有scope注解的话就不是默认的单例
+                                if (clazz.isAnnotationPresent(Scope.class)) {
+                                    Scope scopeAnnotation = clazz.getAnnotation(Scope.class);
+                                    // 获取注解要求的值
+                                    String scope = scopeAnnotation.value();
+                                    beanDefinition.setScope(scope);
+                                } else {
+                                    // 默认bean是单例
+                                    beanDefinition.setScope("singleton");
+                                }
+                                beanDefinition.setType(clazz);  // 类型
+                                // 存储beanDefinition到map中
+                                beanDefinitionMap.put(beanName, beanDefinition);
+                            }
+                        } catch (ClassNotFoundException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            } else {
+
+            }
+        }
+
+        // 扫描完之后，可以把所有的单例bean创建起来，放进单例池进行管理（后续从这里拿）
+        for (String beanName : beanDefinitionMap.keySet()) {
+            BeanDefinition beanDefinition = beanDefinitionMap.get(beanName);
+            if (beanDefinition.getScope().equals("singleton")) {
+                Object bean = createBean(beanName, beanDefinition);
+                singletonObjects.put(beanName, bean);
+            }
+        }
+    }
+
+    private Object createBean(String beanName, BeanDefinition beanDefinition) {
+        Class clazz = beanDefinition.getType();
+        try {
+            Object instance = clazz.getConstructor().newInstance();
+            return instance;
+        } catch (InstantiationException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        } catch (InvocationTargetException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Object getBean(String beanName) {
+        // 根据名字找到类，然后实例化，
+        BeanDefinition beanDefinition = beanDefinitionMap.get(beanName);
+        if (beanDefinition == null) {
+            throw new NullPointerException();
+        } else {
+            String scope = beanDefinition.getScope();
+            if (scope.equals("singleton")) {
+                // 单例，从单例池中拿
+                Object bean = singletonObjects.get(beanName);
+                if (bean == null) {
+                    // 如果单例池中没有（懒加载），就创建一个
+                    bean = createBean(beanName, beanDefinition);
+                    singletonObjects.put(beanName, bean);
+                }
+                return bean;
+            } else {
+                // 多例，每次都创建一个新的
+                return createBean(beanName, beanDefinition);
+            }
+        }
+    }
+}
+
