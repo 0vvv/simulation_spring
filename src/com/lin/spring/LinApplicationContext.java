@@ -96,6 +96,15 @@ public class LinApplicationContext {
                     f.set(instance, getBean(f.getName()));
                 }
             }
+            // Aware回调（自定义了bean的名称）如果实现了BeanNameAware接口，就调用setBeanName方法
+            if (instance instanceof BeanNameAware) {
+                ((BeanNameAware) instance).setBeanName(beanName);
+            }
+            // initializingBean，调用初始化方法
+            if (instance instanceof InitializingBean) {
+                ((InitializingBean) instance).afterPropertiesSet();
+            }
+            // AOP
             return instance;
         } catch (InstantiationException e) {
             throw new RuntimeException(e);
